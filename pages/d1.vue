@@ -9,7 +9,7 @@ import {
   type SeriesPrimitivePaneViewZOrder
 } from 'lightweight-charts';
 
-const { data: kline } = await useFetch('/api/kline', { method: 'GET', params: { exchange: 'lbank', pair: 'MRB-USDT-SPOT', timeframe: 'y', interval: '1m' } });
+const { data: kline } = await useFetch('/api/kline', { method: 'GET', params: { exchange: 'lbank', pair: 'MRB-USDT-SPOT', timeframe: 'y', period: '1m' } });
 console.log(kline.value);
 
 const candlestickData = [
