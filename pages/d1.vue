@@ -9,11 +9,8 @@ import {
   type SeriesPrimitivePaneViewZOrder
 } from 'lightweight-charts';
 
-const { data: kline } = await useFetch('/api/kline', { method: 'GET', params: { exchange: 'lbank', pair: 'MRB-USDT-SPOT', interval: '1m' } });
+const { data: kline } = await useFetch('/api/kline', { method: 'GET', params: { exchange: 'lbank', pair: 'MRB-USDT-SPOT', timeframe: 'y', interval: '1m' } });
 console.log(kline.value);
-
-// const { data: volumeProfile } = await useFetch('/api/volume-profile', { method: 'GET' });
-// console.log(volumeProfile.value);
 
 const candlestickData = [
   { time: '2022-12-01', open: 100, high: 110, low: 90, close: 105 },
