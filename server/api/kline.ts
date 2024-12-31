@@ -21,14 +21,8 @@ export default defineEventHandler(async (event) => {
     period: params.period || '1m',
   }
 
-  const candles = await query(
-    `SELECT timestamp, open, high, low, close, volume FROM public_candle WHERE exchange = $1 AND pair = $2 AND period = $3`,
+  return await query(
+    `SELECT timestamp, open, high, low, close, volume FROM public_candle WHERE exchange = $1 AND pair = $2 AND period = $3 ORDER BY timestamp`,
     [options.exchange, options.pair, options.period]
   );
-
-  console.log(candles);
-
-  return {
-    hello: 'world1'
-  }
 });
