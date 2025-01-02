@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { CanvasRenderingTarget2D } from "fancy-canvas";
-import {computed, onMounted, ref} from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import {
+  createChart,
   type CandlestickData,
   type Time,
-  createChart,
   type IChartApi,
-  type ISeriesPrimitive, type ISeriesPrimitivePaneRenderer,
+  type ISeriesPrimitive,
+  type ISeriesPrimitivePaneRenderer,
   type ISeriesPrimitivePaneView,
-  type SeriesPrimitivePaneViewZOrder, type UTCTimestamp, type LogicalRange, type ISeriesApi
+  type SeriesPrimitivePaneViewZOrder,
+  type UTCTimestamp,
+  type LogicalRange,
+  type ISeriesApi
 } from 'lightweight-charts';
+import BigNumber from "bignumber.js";
 
 interface KlineItem {
   timestamp: string;
@@ -38,12 +43,12 @@ interface PrivateTradeResponse {
 }
 
 interface VolumeBin {
-  startPrice: number;
-  endPrice: number;
-  midPrice: number;
-  volume: number;
-  buyVolume: number;
-  sellVolume: number;
+  startPrice: BigNumber;
+  endPrice: BigNumber;
+  midPrice: BigNumber;
+  volume: BigNumber;
+  buyVolume: BigNumber;
+  sellVolume: BigNumber;
 }
 
 const candlestickData = ref<CandlestickData<Time>[]>([]);
@@ -99,7 +104,6 @@ class VolumeProfilePrimitive implements ISeriesPrimitive<'Candlestick'> {
   constructor(
       private candleStickSeries: ISeriesApi<'Candlestick'>,
       private volumeProfileDataRef: typeof volumeProfileData,
-      private privateTradeDataRef: typeof privateTradeData
   ) {
     this._paneView = new VolumeProfilePaneView(this.candleStickSeries, this.volumeProfileDataRef, this.privateTradeDataRef);
   }
@@ -113,7 +117,6 @@ class VolumeProfilePaneView implements ISeriesPrimitivePaneView {
   constructor(
       private candleStickSeries: ISeriesApi<'Candlestick'>,
       private volumeProfileDataRef: typeof volumeProfileData,
-      private privateTradeDataRef: typeof privateTradeData
   ) {}
 
   zOrder(): SeriesPrimitivePaneViewZOrder {
@@ -126,57 +129,62 @@ class VolumeProfilePaneView implements ISeriesPrimitivePaneView {
         target.useBitmapCoordinateSpace((scope) => {
           const ctx = scope.context;
           const { width, height } = scope.bitmapSize;
-
-          const trades = this.privateTradeDataRef.value || [];
           const volumeBins = this.volumeProfileDataRef.value;
           if (!volumeBins || volumeBins.length === 0) {
             return;
           }
 
-          const maxVolume = Math.max(...volumeBins.map(b => b.volume));
-          const maxBarWidth = width * 0.5;
+          const maxVolume = Math.max(...volumeBins.map(b => b.volume.toNumber()));
+          const maxBarWidth = width * 0.6;
           const scale = maxBarWidth / Math.max(1, maxVolume);
 
           volumeBins.forEach((bin) => {
-            let binBuyVolume = 0;
-            let binSellVolume = 0;
-
-            for (const t of trades) {
-              const priceNum = parseFloat(t.price);
-              if (priceNum >= bin.startPrice && priceNum < bin.endPrice) {
-                const sizeNum = t.size;
-                if (t.side.toLowerCase() === 'buy') {
-                  binBuyVolume += sizeNum;
-                } else if (t.side.toLowerCase() === 'sell') {
-                  binSellVolume += sizeNum;
-                }
-              }
-            }
-
-            // (2) 차트 상에 막대 그리기
-            const y1 = this.candleStickSeries.priceToCoordinate(bin.startPrice);
-            const y2 = this.candleStickSeries.priceToCoordinate(bin.endPrice);
+            const y1 = this.candleStickSeries.priceToCoordinate(bin.startPrice.toNumber());
+            const y2 = this.candleStickSeries.priceToCoordinate(bin.endPrice.toNumber());
             if (y1 == null || y2 == null) return;
 
             const top = Math.min(y1, y2);
             const bottom = Math.max(y1, y2);
             const boxHeight = bottom - top;
 
-            // 막대 폭 (기존 volume 기반)
-            const barWidth = bin.volume * scale;
+            const totalBarWidth = bin.volume.multipliedBy(scale).toNumber();
+            const buyBarWidth = bin.buyVolume.multipliedBy(scale).toNumber();
+            const sellBarWidth = bin.sellVolume.multipliedBy(scale).toNumber();
+
             const x = 0;
 
-            ctx.fillStyle = 'rgba(0, 128, 255, 0.5)';
-            ctx.fillRect(x, top, barWidth, boxHeight);
+            /** Public Volume */
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(x, top, totalBarWidth, boxHeight);
 
-            // (3) buy/sell info 텍스트
+            /** Buy / Sell Volume */
+            ctx.fillStyle = 'rgba(0, 128, 0, 0.4)';
+            ctx.fillRect(x, top, buyBarWidth, boxHeight);
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.4)';
+            ctx.fillRect(x + buyBarWidth, top, sellBarWidth, boxHeight);
+
+            const volumeStr = bin.volume.toFixed(2);
+            const buyStr = bin.buyVolume.toFixed(2);
+            const sellStr = bin.sellVolume.toFixed(2);
+            const totalVolume = bin.volume.plus(bin.buyVolume).plus(bin.sellVolume);
+
             ctx.fillStyle = '#000';
             ctx.font = '12px sans-serif';
             ctx.textAlign = 'left';
 
-            // 예: buyVolume / sellVolume 출력
-            const txt = `Buy: ${binBuyVolume.toFixed(2)} / Sell: ${binSellVolume.toFixed(2)}`;
-            ctx.fillText(txt, x + barWidth + 5, top + boxHeight / 2 + 4);
+            if(totalVolume.isGreaterThanOrEqualTo(300)) {
+              if(totalBarWidth) {
+                ctx.fillText(`\$${volumeStr}`, x + buyBarWidth + sellBarWidth + 3, top + boxHeight / 2 + 4);
+              }
+
+              if(buyBarWidth) {
+                ctx.fillText(`\$${buyStr}`, x + 3, top + boxHeight / 2 + 4);
+              }
+
+              if(sellBarWidth ) {
+                ctx.fillText(`\$${sellStr}`, x + buyBarWidth + 3, top + boxHeight / 2 + 4);
+              }
+            }
           });
         });
       },
@@ -239,43 +247,89 @@ function filterCandlestickDataByRangeBinarySearch(
 }
 
 function buildVolumeProfile(
-    data: (CandlestickData<Time> & { volume?: number })[],
+    data: CandlestickData<Time>[] & { volume?: number }[],
+    tradeData: PrivateTradeItem[],
     minPrice: number,
     maxPrice: number,
     volumeProfileSplit: number
-): Array<VolumeBin> {
-  if (minPrice >= maxPrice || volumeProfileSplit <= 0) {
+): VolumeBin[] {
+  const bnMinPrice = new BigNumber(minPrice);
+  const bnMaxPrice = new BigNumber(maxPrice);
+  const bnVolumeProfileSplit = new BigNumber(volumeProfileSplit);
+
+  if (
+      bnMinPrice.isGreaterThanOrEqualTo(bnMaxPrice) ||
+      bnVolumeProfileSplit.isLessThanOrEqualTo(0)
+  ) {
     return [];
   }
 
-  const range = maxPrice - minPrice;
-  const binSize = range / volumeProfileSplit;
-  const bins = Array.from({ length: volumeProfileSplit }, (_, i) => {
-    const startPrice = minPrice + binSize * i;
-    const endPrice = startPrice + binSize;
-    const midPrice = startPrice + binSize / 2;
+  const range = bnMaxPrice.minus(bnMinPrice);
+  const binSize = range.dividedBy(bnVolumeProfileSplit);
+
+  const splitCount = bnVolumeProfileSplit.toNumber();
+  const bins: VolumeBin[] = Array.from({ length: splitCount }, (_, i) => {
+    const startPrice = bnMinPrice.plus(binSize.multipliedBy(i));
+    const endPrice = startPrice.plus(binSize);
+    const midPrice = startPrice.plus(binSize.dividedBy(2));
 
     return {
       startPrice,
       endPrice,
       midPrice,
-      volume: 0,
-      buyVolume: 0,
-      sellVolume: 0,
+      volume: new BigNumber(0),
+      buyVolume: new BigNumber(0),
+      sellVolume: new BigNumber(0),
     };
   });
 
   for (const candle of data) {
-    const candleVolume = candle.volume ?? 0;
-    const candlePrice = (candle.high + candle.low) / 2;
+    const candleVolume = new BigNumber(candle.volume ?? 0);
+    const candlePrice = new BigNumber(candle.high)
+        .plus(candle.low)
+        .dividedBy(2);
 
-    if (candlePrice < minPrice || candlePrice > maxPrice) {
+    if (
+        candlePrice.isLessThan(bnMinPrice) ||
+        candlePrice.isGreaterThan(bnMaxPrice)
+    ) {
       continue;
     }
 
-    const binIndex = Math.floor((candlePrice - minPrice) / binSize);
+    const binIndex = candlePrice
+        .minus(bnMinPrice)
+        .dividedBy(binSize)
+        .integerValue(BigNumber.ROUND_FLOOR)
+        .toNumber();
+
     if (binIndex >= 0 && binIndex < bins.length) {
-      bins[binIndex].volume += candleVolume;
+      bins[binIndex].volume = bins[binIndex].volume.plus(candleVolume.multipliedBy(candlePrice));
+    }
+  }
+
+  for (const trade of tradeData) {
+    const tradePrice = new BigNumber(trade.price);
+    const tradeSize = new BigNumber(trade.size);
+
+    if (
+        tradePrice.isLessThan(bnMinPrice) ||
+        tradePrice.isGreaterThan(bnMaxPrice)
+    ) {
+      continue;
+    }
+
+    const binIndex = tradePrice
+        .minus(bnMinPrice)
+        .dividedBy(binSize)
+        .integerValue(BigNumber.ROUND_FLOOR)
+        .toNumber();
+
+    if (binIndex >= 0 && binIndex < bins.length) {
+      if (trade.side === 'buy') {
+        bins[binIndex].buyVolume = bins[binIndex].buyVolume.plus(tradeSize.multipliedBy(tradePrice));
+      } else if (trade.side === 'sell') {
+        bins[binIndex].sellVolume = bins[binIndex].sellVolume.plus(tradeSize.multipliedBy(tradePrice));
+      }
     }
   }
 
@@ -333,7 +387,7 @@ onMounted(() => {
     });
 
     const candlestickSeries = chart.addCandlestickSeries();
-    const primitive = new VolumeProfilePrimitive(candlestickSeries, volumeProfileData, privateTradeData);
+    const primitive = new VolumeProfilePrimitive(candlestickSeries, volumeProfileData);
     candlestickSeries.attachPrimitive(primitive);
     candlestickSeries.setData(candlestickData.value);
     candlestickSeries.applyOptions({
@@ -347,6 +401,11 @@ onMounted(() => {
     const handleRangeChange = debounce(async (logicalRange: LogicalRange) => {
       const barInfo: any = candlestickSeries.barsInLogicalRange(logicalRange);
       if (!barInfo || barInfo.from === null || barInfo.to === null) return;
+      const { data: privateTrade } = await useFetch<PrivateTradeResponse>('/api/private-trade', { method: 'GET', params: { exchange: 'lbank', pair: 'MRB-USDT-SPOT', timeframe: 'y', period: '1m', account: chartInfo.account, minPrice: chartInfo.minPrice, maxPrice: chartInfo.maxPrice, minTimestamp: chartInfo.minTimestamp, maxTimestamp: chartInfo.maxTimestamp } });
+      if (privateTrade.value && Array.isArray(privateTrade.value.rows)) {
+        privateTradeData.value = privateTrade.value.rows;
+      }
+
       viewPortCandleData.value = filterCandlestickDataByRangeBinarySearch(
           candlestickData.value,
           barInfo.from,
@@ -355,16 +414,18 @@ onMounted(() => {
 
       volumeProfileData.value = buildVolumeProfile(
           viewPortCandleData.value,
+          privateTradeData.value,
           chartInfo.minPrice,
           chartInfo.maxPrice,
           chartInfo.volumeProfileSplit
       );
-
-      const { data: privateTrade } = await useFetch<PrivateTradeResponse>('/api/private-trade', { method: 'GET', params: { exchange: 'lbank', pair: 'MRB-USDT-SPOT', timeframe: 'y', period: '1m', account: chartInfo.account, minPrice: chartInfo.minPrice, maxPrice: chartInfo.maxPrice, minTimestamp: chartInfo.minTimestamp, maxTimestamp: chartInfo.maxTimestamp } });
-      if (privateTrade.value && Array.isArray(privateTrade.value.rows)) {
-        privateTradeData.value = privateTrade.value.rows;
-      }
     }, 200);
+
+    /** Only Dev */
+    chart.timeScale().setVisibleRange({
+      from: 1735635600 as Time,
+      to: 1735642800 as Time,
+    });
 
     chart.timeScale().subscribeVisibleLogicalRangeChange((logicalRange) => {
       if(logicalRange === null) {

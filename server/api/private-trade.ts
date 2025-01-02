@@ -31,8 +31,6 @@ export default defineEventHandler(async (event) => {
     maxTimestamp: Number(params.maxTimestamp) * 1000,
   }
 
-  console.log(options);
-
   return await query(
     `SELECT timestamp, side, price, size FROM private_trade WHERE account = $1 AND exchange = $2 AND pair = $3 AND price BETWEEN $4 AND $5 AND timestamp BETWEEN $6 AND $7 ORDER BY timestamp`,
     [options.account, options.exchange, options.pair, options.minPrice, options.maxPrice, options.minTimestamp, options.maxTimestamp]
